@@ -1,0 +1,157 @@
+---
+version: '3'
+services:
+
+  inventory-service:
+    image: hamdidemir61/inventory-service:latest
+    build:
+      context: ./inventory-service
+    ports:
+      - 8081:8081
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:mysql://inventory-db:3306/inventory-service?createDatabaseIfNotExist=true
+      - SPRING_DATASOURCE_USERNAME=root
+      - SPRING_DATASOURCE_PASSWORD=mysql
+    depends_on:
+      - inventory-db
+      - discovery-service
+      - api-gateway
+    container_name: inventory-service
+
+  product-service:
+      build:
+        context: ./product-service
+      ports:
+        - 8082:8082
+      environment:
+        - SPRING_DATASOURCE_URL=jdbc:mysql://localhost:3306/product-service?createDatabaseIfNotExist=true
+        - SPRING_DATASOURCE_USERNAME=root
+        - SPRING_DATASOURCE_PASSWORD=mysql
+      depends_on:
+        - product-db
+        - discovery-service
+        - api-gateway
+
+  user-service:
+      build:
+        context: ./user-service
+      ports:
+        - 8083:8083
+      environment:
+        - SPRING_DATASOURCE_URL=jdbc:mysql://localhost:3306/userorder-service?createDatabaseIfNotExist=true
+        - SPRING_DATASOURCE_USERNAME=root
+        - SPRING_DATASOURCE_PASSWORD=mysql
+      depends_on:
+        - userorder-db
+        - discovery-service
+        - api-gateway
+
+  order-service:
+      image: hamdidemir61/order-service:latest
+      build:
+        context: ./order-service
+      ports:
+        - 8084:8084
+      environment:
+        - SPRING_DATASOURCE_URL=jdbc:mysql://userorder-db:3306/userorder-service?createDatabaseIfNotExist=true
+        - SPRING_DATASOURCE_USERNAME=root
+        - SPRING_DATASOURCE_PASSWORD=mysql
+      depends_on:
+        - userorder-db
+        - broker
+        - zipkin
+        - discovery-service
+        - api-gateway
+      container_name: order-service
+
+  inventory-db:
+      image: mysql:latest
+      environment:
+        - MYSQL_ROOT_PASSWORD=mysql
+        - MYSQL_DATABASE=inventory-service
+      volumes:
+        - ./mysql-data/inventory:/var/lib/mysql
+
+  product-db:
+      image: mysql:latest
+      environment:
+        - MYSQL_ROOT_PASSWORD=mysql
+        - MYSQL_DATABASE=product-service
+      volumes:
+        - ./mysql-data/product:/var/lib/mysql
+
+  userorder-db:
+      image: mysql:latest
+      environment:
+        - MYSQL_ROOT_PASSWORD=mysql
+        - MYSQL_DATABASE=userorder-service
+      volumes:
+        - ./mysql-data/userorder:/var/lib/mysql
+
+  notification-service:
+    container_name: notification-service
+    image: hamdidemir61/notification-service:latest
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+    depends_on:
+      - zipkin
+      - broker
+      - discovery-service
+      - api-gateway
+
+  ## Eureka Server
+  discovery-service:
+    image: hamdidemir61/discovery-service:latest
+    container_name: discovery-service
+    ports:
+      - "8761:8761"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+    depends_on:
+      - zipkin
+
+  api-gateway:
+    image: hamdidemir61/api-gateway:latest
+    container_name: api-gateway
+    ports:
+      - "8181:8080"
+    expose:
+      - "8181"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_SECURITY= TRACE
+    depends_on:
+      - zipkin
+      - discovery-service
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.3.2
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  broker:
+    image: confluentinc/cp-kafka:7.3.2
+    container_name: broker
+    ports:
+      # To learn about configuring Kafka for access across networks see
+      # https://www.confluent.io/blog/kafka-client-cannot-connect-to-broker-on-aws-on-docker-etc/
+      - "9092:9092"
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,PLAINTEXT_INTERNAL://broker:29092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+
+  ## Zipkin
+  zipkin:
+    image: openzipkin/zipkin
+    container_name: zipkin
+    ports:
+      - "9411:9411"
